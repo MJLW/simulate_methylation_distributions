@@ -1,3 +1,4 @@
+use core::panic;
 use std::{env, fs::File};
 
 use hypors::{common::TailType, mann_whitney::u_test};
@@ -110,7 +111,10 @@ fn run_h0_combinations(
         let case_sampling_size: usize = if n_max_cases < n_samples {
             n_max_cases
         } else {
-            n_samples
+            panic!(
+                "Could not draw {} number of cases, there are only {}",
+                n_max_cases, n_samples
+            );
         };
         let case_selections: Vec<usize> =
             seq::index::sample(&mut rng, n_samples, case_sampling_size).into_vec();
@@ -118,7 +122,11 @@ fn run_h0_combinations(
         let control_sampling_size: usize = if n_max_controls < (n_samples - n_max_cases) {
             n_max_cases
         } else {
-            n_samples - n_max_cases
+            panic!(
+                "Could not draw {} number of cases, there are only {}",
+                n_max_controls,
+                n_samples - n_max_cases
+            );
         };
         let control_sampling: Vec<usize> =
             seq::index::sample(&mut rng, control_sampling_size, n_max_controls).into_vec();
@@ -159,7 +167,10 @@ fn run_h1_combinations(
         let case_sampling_size: usize = if n_max_cases < n_cases {
             n_max_cases
         } else {
-            n_cases
+            panic!(
+                "Could not draw {} cases, there are only {}.",
+                n_max_cases, n_cases
+            );
         };
         let case_selections: Vec<usize> =
             seq::index::sample(&mut rng, n_cases, case_sampling_size).into_vec();
@@ -167,7 +178,10 @@ fn run_h1_combinations(
         let control_sampling_size: usize = if n_max_controls < n_controls {
             n_max_controls
         } else {
-            n_controls
+            panic!(
+                "Could not draw {} cases, there are only {}.",
+                n_max_controls, n_controls
+            );
         };
         let control_selections: Vec<usize> =
             seq::index::sample(&mut rng, n_controls, control_sampling_size).into_vec();
