@@ -3,11 +3,9 @@ use std::{env, fs::File};
 use hypors::{common::TailType, mann_whitney::u_test};
 use itertools::Itertools;
 use polars::prelude::*;
-use rand::{rng, seq};
+use rand::{SeedableRng, rngs::StdRng, seq};
 
-// const MAX_COMBINATIONS: i32 = 10;
-// const MAX_CASES: usize = 2;
-// const MAX_CONTROLS: usize = 20;
+const SEED: u64 = 0;
 const ALPHA: f64 = 0.05;
 
 fn read_pheno(pheno_path: &str) -> LazyFrame {
@@ -104,7 +102,7 @@ fn run_h0_combinations(
     let betas = convert_betas_to_vec(&df_betas);
 
     /* Test H0 hypotheses on controls */
-    let mut rng = rng();
+    let mut rng = StdRng::seed_from_u64(SEED);
     let n_samples = df_controls.shape().0;
 
     let mut combination_series: Vec<Series> = Vec::new();
@@ -152,7 +150,7 @@ fn run_h1_combinations(
     let betas = convert_betas_to_vec(&df_betas);
 
     /* Test H1 hypotheses on cases */
-    let mut rng = rng();
+    let mut rng = StdRng::seed_from_u64(SEED);
     let n_cases = df_cases.shape().0;
     let n_controls = df_controls.shape().0;
 
