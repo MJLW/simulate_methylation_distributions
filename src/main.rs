@@ -120,7 +120,7 @@ fn run_h0_combinations(
             seq::index::sample(&mut rng, n_samples, case_sampling_size).into_vec();
 
         let control_sampling_size: usize = if n_max_controls < (n_samples - n_max_cases) {
-            n_max_cases
+            n_max_controls
         } else {
             panic!(
                 "Could not draw {} number of cases, there are only {}",
