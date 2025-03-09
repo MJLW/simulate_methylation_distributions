@@ -1,13 +1,11 @@
 use core::panic;
 use std::{env, fs::File};
 
-use hypors::{common::TailType, mann_whitney::u_test};
 use itertools::Itertools;
 use polars::prelude::*;
 use rand::{SeedableRng, rngs::StdRng, seq};
 
 const SEED: u64 = 0;
-const ALPHA: f64 = 0.05;
 
 fn read_pheno(pheno_path: &str) -> LazyFrame {
     let pathogenicity_values = Series::from_iter(vec![
@@ -66,37 +64,82 @@ fn get_samples_columns(df_pheno_subset: &DataFrame) -> Vec<Expr> {
     return target_columns;
 }
 
-fn select_indices_as_series(indices: &Vec<usize>, vector: &Vec<f64>, series_name: &str) -> Series {
-    return Series::from_vec(
-        series_name.into(),
-        indices.iter().map(|&i| vector[i]).collect_vec(),
-    );
-}
-
-fn run_u_test(
+fn run_permutation_test(
     values: &Vec<Vec<f64>>,
     case_indices: &Vec<usize>,
     control_indices: &Vec<usize>,
+    n_permutations: usize,
+    seed: u64,
 ) -> Vec<f64> {
-    return (0..values.len())
+    let mut rng = StdRng::seed_from_u64(seed);
+    let permutations: Vec<Vec<usize>> = (0..n_permutations)
         .into_iter()
-        .map(|i| {
-            u_test(
-                &select_indices_as_series(case_indices, &(*values)[i], "cases"),
-                &select_indices_as_series(control_indices, &(*values)[i], "controls"),
-                ALPHA,
-                TailType::Two,
+        .map(|_| {
+            seq::index::sample(
+                &mut rng,
+                case_indices.len() + control_indices.len(),
+                case_indices.len(),
             )
-            .unwrap()
-            .p_value as f64
+            .into_iter()
+            .map(|i| i as usize)
+            .collect_vec()
         })
         .collect_vec();
+
+    let mut p_values: Vec<f64> = Vec::new();
+    for i in 0..values.len() {
+        let row: Vec<f64> = values[i].clone();
+
+        let cases: Vec<f64> = case_indices.into_iter().map(|i| row[*i]).collect_vec();
+        let controls: Vec<f64> = control_indices.into_iter().map(|i| row[*i]).collect_vec();
+
+        let test_statistic = median_difference(cases, controls);
+
+        let mut null_statistics: Vec<f64> = Vec::new();
+
+        for j in 0..n_permutations {
+            let case_indices = &permutations[j];
+            let cases: Vec<f64> = case_indices.into_iter().map(|i| row[*i]).collect_vec();
+
+            let control_indices = (0..row.len())
+                .into_iter()
+                .filter(|i| !case_indices.contains(i))
+                .collect_vec();
+            let controls: Vec<f64> = control_indices.into_iter().map(|i| row[i]).collect_vec();
+
+            let null_statistic = median_difference(cases, controls);
+            null_statistics.push(null_statistic);
+        }
+
+        let p_value: f64 = (null_statistics
+            .iter()
+            .filter(|test| test_statistic <= **test)
+            .count() as f64)
+            / (null_statistics.len() as f64);
+        p_values.push(p_value);
+    }
+
+    return p_values;
+}
+
+fn median(mut a: Vec<f64>) -> f64 {
+    a.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    if a.len() % 2 == 0 {
+        return (a[a.len() / 2 - 1] + a[a.len() / 2]) / 2.0;
+    } else {
+        return a[a.len() / 2];
+    }
+}
+
+fn median_difference(a: Vec<f64>, b: Vec<f64>) -> f64 {
+    return (median(a) - median(b)).abs();
 }
 
 fn run_h0_combinations(
     df_betas: &DataFrame,
     df_controls: &DataFrame,
     n_iterations: usize,
+    n_permutations: usize,
     n_max_cases: usize,
     n_max_controls: usize,
 ) -> Vec<Series> {
@@ -139,7 +182,16 @@ fn run_h0_combinations(
             .map(|(_, idx)| idx)
             .collect_vec();
 
-        let results: Vec<f64> = run_u_test(&betas, &case_selections, &control_selections);
+        println!("\nCases: {:?}", case_selections);
+        println!("Controls: {:?}", control_selections);
+
+        let results: Vec<f64> = run_permutation_test(
+            &betas,
+            &case_selections,
+            &control_selections,
+            n_permutations,
+            i as u64,
+        );
 
         combination_series.push(Series::from_vec(format!("iter_{}", i).into(), results));
     }
@@ -152,6 +204,7 @@ fn run_h1_combinations(
     df_cases: &DataFrame,
     df_controls: &DataFrame,
     n_iterations: usize,
+    n_permutations: usize,
     n_max_cases: usize,
     n_max_controls: usize,
 ) -> Vec<Series> {
@@ -192,7 +245,14 @@ fn run_h1_combinations(
 
         println!("\nCases: {:?}", case_selections);
         println!("Controls: {:?}", control_selections);
-        let results: Vec<f64> = run_u_test(&betas, &case_selections, &control_selections);
+
+        let results: Vec<f64> = run_permutation_test(
+            &betas,
+            &case_selections,
+            &control_selections,
+            n_permutations,
+            i as u64,
+        );
 
         combination_series.push(Series::from_vec(format!("iter_{}", i).into(), results));
     }
@@ -205,11 +265,12 @@ fn main() {
 
     let mode = &args[1];
     let n_combinations: usize = args[2].parse::<usize>().unwrap();
-    let n_target_cases: usize = args[3].parse::<usize>().unwrap();
-    let n_target_controls: usize = args[4].parse::<usize>().unwrap();
-    let pheno_path = &args[5];
-    let betas_path = &args[6];
-    let output_path = &args[7];
+    let n_permutations: usize = args[3].parse::<usize>().unwrap();
+    let n_target_cases: usize = args[4].parse::<usize>().unwrap();
+    let n_target_controls: usize = args[5].parse::<usize>().unwrap();
+    let pheno_path = &args[6];
+    let betas_path = &args[7];
+    let output_path = &args[8];
 
     let split_mode: Vec<&str> = mode.split(".").collect();
     let test = split_mode[0];
@@ -240,6 +301,7 @@ fn main() {
             &df_betas,
             &df_controls,
             n_combinations,
+            n_permutations,
             n_target_cases,
             n_target_controls,
         );
@@ -297,6 +359,7 @@ fn main() {
             &df_cases,
             &df_controls,
             n_combinations,
+            n_permutations,
             n_target_cases,
             n_target_controls,
         );
