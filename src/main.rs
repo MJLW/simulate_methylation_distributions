@@ -162,6 +162,8 @@ fn run_h1_combinations(
     let n_cases = df_cases.shape().0;
     let n_controls = df_controls.shape().0;
 
+    println!("N cases: {}, N controls: {}", n_cases, n_controls);
+
     let mut combination_series: Vec<Series> = Vec::new();
     for i in 0..n_iterations {
         let case_sampling_size: usize = if n_max_cases < n_cases {
@@ -172,8 +174,10 @@ fn run_h1_combinations(
                 n_max_cases, n_cases
             );
         };
-        let case_selections: Vec<usize> =
-            seq::index::sample(&mut rng, n_cases, case_sampling_size).into_vec();
+        let case_selections: Vec<usize> = seq::index::sample(&mut rng, n_cases, case_sampling_size)
+            .into_iter()
+            .map(|val| val + n_controls)
+            .collect_vec();
 
         let control_sampling_size: usize = if n_max_controls < n_controls {
             n_max_controls
@@ -186,6 +190,8 @@ fn run_h1_combinations(
         let control_selections: Vec<usize> =
             seq::index::sample(&mut rng, n_controls, control_sampling_size).into_vec();
 
+        println!("\nCases: {:?}", case_selections);
+        println!("Controls: {:?}", control_selections);
         let results: Vec<f64> = run_u_test(&betas, &case_selections, &control_selections);
 
         combination_series.push(Series::from_vec(format!("iter_{}", i).into(), results));
@@ -279,6 +285,8 @@ fn main() {
             .cloned()
             .collect();
 
+        println!("Columns: {:?}", target_columns);
+
         let df_betas = read_betas(betas_path)
             .select(&target_columns)
             .collect()
@@ -295,7 +303,7 @@ fn main() {
         let columns = combination_series.into_iter().map(Column::from).collect();
         let mut df_output = DataFrame::new(columns).unwrap();
 
-        println!("{}", df_output);
+        println!("\n{}", df_output);
 
         let mut output_file = File::create(output_path).expect("Could not create output file");
         let _ = CsvWriter::new(&mut output_file)
