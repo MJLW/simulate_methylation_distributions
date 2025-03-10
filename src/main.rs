@@ -6,6 +6,7 @@ use polars::prelude::*;
 use rand::{SeedableRng, rngs::StdRng, seq};
 
 const SEED: u64 = 0;
+const LQ_SAMPLES: [&'static str; 2] = ["202831040112_R01C01", "202831040113_R08C01"];
 
 fn read_pheno(pheno_path: &str) -> LazyFrame {
     let pathogenicity_values = Series::from_iter(vec![
@@ -23,7 +24,12 @@ fn read_pheno(pheno_path: &str) -> LazyFrame {
             col("Pathogenicity")
                 .is_in(lit(pathogenicity_values.clone()))
                 .and(col("QC_Flag").eq(false))
-                .and(col("Tissue").str().contains(lit("^Blood"), true)),
+                .and(col("Tissue").str().contains(lit("^Blood"), true))
+                .and(
+                    col("Array_ID")
+                        .is_in(lit(Series::new("".into(), LQ_SAMPLES)))
+                        .not(),
+                ),
         )
         .select([col("Person_Stable_ID"), col("Array_ID"), col("Status")]);
 }
@@ -340,6 +346,9 @@ fn main() {
 
         let control_columns = get_samples_columns(&df_controls);
         let case_columns = get_samples_columns(&df_cases);
+
+        println!("Case columns: {:?}", case_columns);
+        println!("Control columns: {:?}", control_columns);
 
         let target_columns: Vec<Expr> = control_columns
             .iter()
