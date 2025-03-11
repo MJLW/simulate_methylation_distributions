@@ -357,6 +357,8 @@ fn main() {
                 .filter(col("Status").str().contains(lit("Negative Control"), true))
                 .select([all().exclude(["^Status"])]);
 
+            println!("{}", lf_controls.clone().collect().unwrap());
+
             let df_controls = lf_controls
                 .with_row_index("Index", Some(0))
                 .collect()
@@ -397,6 +399,7 @@ fn main() {
         let lf_controls = lf_pheno
             .clone()
             .filter(col("Status").str().contains(lit("Negative Control"), true))
+            .filter(col("Gene").str().contains(lit(gene), true).not())
             .select([all().exclude(["^Status"])]);
 
         let df_controls = lf_controls
@@ -406,7 +409,7 @@ fn main() {
 
         let lf_cases = lf_pheno
             .clone()
-            .filter(col("Status").str().contains(lit(gene), true))
+            .filter(col("Gene").str().contains(lit(gene), true))
             .select([all().exclude(["^Status"])]);
 
         let df_cases = lf_cases.with_row_index("Index", Some(0)).collect().unwrap();
