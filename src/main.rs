@@ -31,7 +31,12 @@ fn read_pheno(pheno_path: &str) -> LazyFrame {
                         .not(),
                 ),
         )
-        .select([col("Person_Stable_ID"), col("Array_ID"), col("Status")]);
+        .select([
+            col("Person_Stable_ID"),
+            col("Array_ID"),
+            col("Status"),
+            col("Gene"),
+        ]);
 }
 
 fn read_betas(beta_path: &str) -> LazyFrame {
@@ -284,44 +289,106 @@ fn main() {
     let lf_pheno = read_pheno(pheno_path);
 
     if test == "H0" {
-        /* H0 */
-        /* Get controls */
-        let lf_controls = lf_pheno
-            .clone()
-            .filter(col("Status").str().contains(lit("Negative Control"), true))
-            .select([all().exclude(["^Status"])]);
+        if split_mode.len() == 2 {
+            let gene = split_mode[1];
 
-        let df_controls = lf_controls
-            .with_row_index("Index", Some(0))
-            .collect()
-            .unwrap();
+            let lf_controls = lf_pheno
+                .clone()
+                .filter(col("Status").str().contains(lit("Negative Control"), true))
+                .filter(col("Gene").str().contains(lit(gene), true).not())
+                .select([all().exclude(["^Status"])]);
 
-        let target_columns = get_samples_columns(&df_controls);
+            let df_controls = lf_controls
+                .with_row_index("Index", Some(0))
+                .collect()
+                .unwrap();
 
-        let df_betas = read_betas(betas_path)
-            .select(&target_columns)
-            .collect()
-            .expect("Failed to select the specified columns");
+            let lf_cases = lf_pheno
+                .clone()
+                .filter(col("Status").str().contains(lit("Negative Control"), true))
+                .filter(col("Gene").str().contains(lit(gene), true))
+                .select([all().exclude(["^Status"])]);
 
-        let combination_series = run_h0_combinations(
-            &df_betas,
-            &df_controls,
-            n_combinations,
-            n_permutations,
-            n_target_cases,
-            n_target_controls,
-        );
+            let df_cases = lf_cases.with_row_index("Index", Some(0)).collect().unwrap();
 
-        let columns = combination_series.into_iter().map(Column::from).collect();
-        let mut df_output = DataFrame::new(columns).unwrap();
+            let control_columns = get_samples_columns(&df_controls);
+            let case_columns = get_samples_columns(&df_cases);
 
-        println!("{}", df_output);
+            println!("Case columns: {:?}", case_columns);
+            println!("Control columns: {:?}", control_columns);
 
-        let mut output_file = File::create(output_path).expect("Could not create output file");
-        let _ = CsvWriter::new(&mut output_file)
-            .include_header(true)
-            .with_separator(b'\t')
-            .finish(&mut df_output);
+            let target_columns: Vec<Expr> = control_columns
+                .iter()
+                .chain(case_columns.iter())
+                .cloned()
+                .collect();
+
+            println!("Columns: {:?}", target_columns);
+
+            let df_betas = read_betas(betas_path)
+                .select(&target_columns)
+                .collect()
+                .expect("Failed to select the specified columns");
+
+            let combination_series = run_h1_combinations(
+                &df_betas,
+                &df_cases,
+                &df_controls,
+                n_combinations,
+                n_permutations,
+                n_target_cases,
+                n_target_controls,
+            );
+            let columns = combination_series.into_iter().map(Column::from).collect();
+            let mut df_output = DataFrame::new(columns).unwrap();
+
+            println!("\n{}", df_output);
+
+            let mut output_file = File::create(output_path).expect("Could not create output file");
+            let _ = CsvWriter::new(&mut output_file)
+                .include_header(true)
+                .with_separator(b'\t')
+                .finish(&mut df_output);
+        } else {
+            /* H0 */
+            /* Get controls */
+            let lf_controls = lf_pheno
+                .clone()
+                .filter(col("Status").str().contains(lit("Negative Control"), true))
+                .select([all().exclude(["^Status"])]);
+
+            let df_controls = lf_controls
+                .with_row_index("Index", Some(0))
+                .collect()
+                .unwrap();
+
+            let target_columns = get_samples_columns(&df_controls);
+
+            let df_betas = read_betas(betas_path)
+                .select(&target_columns)
+                .collect()
+                .expect("Failed to select the specified columns");
+
+            let combination_series = run_h0_combinations(
+                &df_betas,
+                &df_controls,
+                n_combinations,
+                n_permutations,
+                n_target_cases,
+                n_target_controls,
+            );
+
+            let columns = combination_series.into_iter().map(Column::from).collect();
+            let mut df_output = DataFrame::new(columns).unwrap();
+
+            println!("{}", df_output);
+
+            let mut output_file = File::create(output_path).expect("Could not create output file");
+            let _ = CsvWriter::new(&mut output_file)
+                .include_header(true)
+                .with_separator(b'\t')
+                .finish(&mut df_output);
+        }
     } else if test == "H1" {
         /* H1 */
         // let gene = "ARID1B";
